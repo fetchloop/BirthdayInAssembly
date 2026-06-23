@@ -1,0 +1,25 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Assembly",
+            "type": "shell",
+            "command": "nasm -f win64 ${fileBasenameNoExtension}.asm -o ${fileBasenameNoExtension}.o && gcc ${fileBasenameNoExtension}.o -o ${fileBasenameNoExtension}.exe && echo Build successful!",
+            "options": {
+                "shell": {
+                    "executable": "cmd.exe",
+                    "args": ["/C"]
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}
