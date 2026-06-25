@@ -173,6 +173,7 @@ sort_birthdays:
     mov ecx, [rax+12]
     mov [today_day], ecx
     mov ecx, [rax+16]
+    inc ecx
     mov [today_month], ecx
 
     mov eax, [today_month]
