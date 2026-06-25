@@ -1,14 +1,23 @@
 bits 64
 default rel
 
+; i'm a fraud, i know
 extern printf
 extern scanf
+extern getchar
+extern fopen
+extern fclose
+extern fprintf
+extern fgets
+extern sscanf
 
 section .bss
     birthdays resb 4800 ; 100 records x 48 bytes (32 name + 16 date)
     choice resd 1
     count resb 1
     edit resd 1
+    filehandle  resq 1 ; fopen returns a 64bit ptr
+    linebuf resb 64 ; temp buf for fgets
 
 section .data
     menu db "-=-=-=-=-=-=-=-=-=-=-=-=-", 10
@@ -28,14 +37,120 @@ section .data
     prompt_birthday db "Enter date (YYYY-MM-DD): ", 0
 
     fmt_entry db "%d. %s - %s", 10, 0
-    prompt_which db "Edit which?: ", 10, 0
+    prompt_which db "Edit which?: ", 0
+
+    cls db 27, "[3J", 27, "[2J", 27, "[H", 0
+    prompt_enter db "Press enter to continue...", 0
+
+    filename db "birthdays.ini", 0
+    mode_r db "r", 0
+    mode_w db "w", 0
+    fmt_save db "%s:%s", 10, 0 ; format for writing each line
+
+    fmt_load db "%31[^:]:%15s", 0
 
 section .text
 
 global main
 
+save_birthdays:
+    sub rsp, 58h
+
+    mov rcx, filename
+    mov rdx, mode_w
+    call fopen
+    mov [filehandle], rax
+
+    mov rcx, 0
+
+    ; loop all records in file
+    .loop:
+        movzx rbx, byte [count]
+        cmp rcx, rbx
+        jge .done
+
+        mov [rsp+40h], rcx
+
+        mov rax, rcx
+        mov rbx, 48
+        mul rbx
+        lea rbx, [birthdays]
+        add rax, rbx
+
+        mov rcx, [filehandle]
+        mov rdx, fmt_save
+        mov r8, rax
+        lea r9, [rax+32]
+        call fprintf
+
+        mov rcx, [rsp+40h]
+        inc rcx
+        jmp .loop
+
+    .done:
+        mov rcx, [filehandle]
+        call fclose
+
+        add rsp, 58h
+        ret
+
+load_birthdays:
+    sub rsp, 58h
+
+    mov rcx, filename
+    mov rdx, mode_r
+    call fopen
+    mov [filehandle], rax
+
+    cmp rax, 0
+    je .no_file
+
+    .loop:
+        mov rcx, linebuf
+        mov rdx, 64
+        mov r8, [filehandle]
+        call fgets
+        cmp rax, 0
+        je .done
+
+        movzx rax, byte [count]
+        mov rbx, 48
+        mul rbx
+        lea rbx, [birthdays]
+        add rax, rbx
+
+        mov [rsp+40h], rax ; save record addr first
+
+        mov rcx, linebuf
+        mov rdx, fmt_load
+        mov r8, [rsp+40h] ; name ptr
+        mov r9, [rsp+40h]
+        add r9, 32 ; date ptr
+
+        call sscanf
+
+        movzx rbx, byte [count]
+        inc rbx
+        mov [count], bl
+        jmp .loop
+
+    .done:
+        mov rcx, [filehandle]
+        call fclose
+
+        add rsp, 58h
+        ret
+
+    .no_file:
+        add rsp, 58h
+        ret
+
 view_birthdays:
     sub rsp, 58h
+
+    mov rcx, cls
+    call printf
+
     mov rcx, 0
 
     .loop:
@@ -61,11 +176,18 @@ view_birthdays:
         jmp .loop
 
     .done:
+        lea rcx, [prompt_enter]
+        call printf
+        call getchar ; eat leftovers, yummy
+        call getchar ; wait for input
         add rsp, 58h
         ret
 
 add_birthday:
     sub rsp, 48h
+
+    mov rcx, cls
+    call printf
 
     movzx rax, byte [count]
     mov rbx, 48
@@ -97,11 +219,17 @@ add_birthday:
     inc rbx
     mov [count], bl
 
+    call save_birthdays
+
     add rsp, 48h
     ret
 
 edit_birthday:
     sub rsp, 58h
+
+    mov rcx, cls
+    call printf
+
     mov rcx, 0
 
     .loop:
@@ -131,53 +259,86 @@ edit_birthday:
         lea rcx, [prompt_which]
         call printf
 
+        lea rcx, [fmt_input]
+        lea rdx, [edit]
+        call scanf
+
+        mov eax, [edit] ; edit is dword so can't use movzx
+        mov rbx, 48
+        mul rbx
+        lea rbx, [birthdays]
+        add rax, rbx
+
+        mov [rsp+40h], rax ; store result
+
+        ; actual edit
+        mov rcx, prompt_name
+        call printf
+
         mov rax, [rsp+40h]
-        mov rcx, fmt_input
+        mov rcx, fmt_string
         mov rdx, rax ; read name into record base
         call scanf
 
-        ; store input number and let user modify based on their int input. 
+        mov rax, [rsp+40h]
+        mov rcx, prompt_birthday
+        call printf
 
+        mov rax, [rsp+40h]
+        add rax, 32
+        mov rcx, fmt_string
+        mov rdx, rax ; read date into record base + 32
+        call scanf
 
-        add rsp, 58h
+        call save_birthdays
+        add rsp, 58h ; free shadow space
         ret
 
 main:
-.loop:
     sub rsp, 28h
-    mov rcx, menu
-    call printf
+    call load_birthdays
     add rsp, 28h
 
-    sub rsp, 28h
-    lea rcx, [fmt_input]
-    lea rdx, [choice]
-    call scanf
-    add rsp, 28h
+    .loop:
+        sub rsp, 28h
+        mov rcx, cls
+        call printf
+        add rsp, 28h
 
-    mov eax, [choice]
-    cmp rax, 1
-    je .view
-    cmp rax, 2
-    je .add
-    cmp rax, 3
-    je .edit
-    jmp .loop
+        sub rsp, 28h
+        mov rcx, menu
+        call printf
+        add rsp, 28h
 
-.view:
-    sub rsp, 28h
-    call view_birthdays
-    add rsp, 28h
-    jmp .loop
+        sub rsp, 28h
+        lea rcx, [fmt_input]
+        lea rdx, [choice]
+        call scanf
+        add rsp, 28h
 
-.add:
-    sub rsp, 28h
-    call add_birthday
-    add rsp, 28h
-    jmp .loop
+        mov eax, [choice]
+        cmp rax, 1
+        je .view
+        cmp rax, 2
+        je .add
+        cmp rax, 3
+        je .edit
+        jmp .loop
 
-.edit:
-    sub rsp, 28h
-    call edit_birthday
-    add rsp, 28h
-    jmp .loop
+    .view:
+        sub rsp, 28h
+        call view_birthdays
+        add rsp, 28h
+        jmp .loop
+
+    .add:
+        sub rsp, 28h
+        call add_birthday
+        add rsp, 28h
+        jmp .loop
+
+    .edit:
+        sub rsp, 28h
+        call edit_birthday
+        add rsp, 28h
+        jmp .loop
